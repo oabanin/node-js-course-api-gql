@@ -38,6 +38,7 @@ import 'dotenv/config'
 import {GraphQLFormattedError} from "graphql/error";
 import {ApolloServerErrorCode} from "@apollo/server/errors";
 import {auth} from "./middleware/auth";
+import {clearImage} from "./utils/utils";
 
 export const MONGODB_URI = process.env.MONGODB_URI || ''
 // app.use(bodyParser.urlencoded({})) //x-www-form-url-endcoded
@@ -145,7 +146,3 @@ connect(MONGODB_URI)
     .catch(console.log)
 
 
-const clearImage = (filePath: string) => {
-    filePath = path.join(__dirname, '..', filePath);
-    fs.unlink(filePath, err => console.log(err));
-};

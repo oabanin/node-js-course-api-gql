@@ -17,24 +17,12 @@ type ICreatePostInput = {
 };
 
 import {sign} from "jsonwebtoken";
-//
-// type IUpdateJobInput = {
-//     id: string;
-//     title: string;
-//     description: string;
-//     companyId: string;
-// };
-
-// function rejectIf(condition: boolean) {
-//     if (condition) {
-//         throw new Error("Unauthorized");
-//     }
-// }
+import {clearImage} from "../utils/utils";
 
 const resolvers = {
     Query: {
-        login: async function(root: any, {email, password}: { email:string, password: string }) {
-            const user = await User.findOne({ email: email });
+        login: async function (root: any, {email, password}: { email: string, password: string }) {
+            const user = await User.findOne({email: email});
             if (!user) {
                 throw new GraphQLError('User not found', {
                     extensions: {
@@ -58,11 +46,11 @@ const resolvers = {
                     email: user.email
                 },
                 process.env.TOKEN_SECRET_KEY || '',
-                { expiresIn: '1h' }
+                {expiresIn: '1h'}
             );
-            return { token: token, userId: user._id.toString() };
+            return {token: token, userId: user._id.toString()};
         },
-        posts: async function (root:any, {page}:{page: number}, contextValue:any){
+        posts: async function (root: any, {page}: { page: number }, contextValue: any) {
             if (!contextValue.isAuth) {
                 throw new GraphQLError('Not authenticated', {
                     extensions: {
@@ -77,7 +65,7 @@ const resolvers = {
             const perPage = 2;
             const totalPosts = await Post.find().countDocuments();
             const posts = await Post.find()
-                .sort({ createdAt: -1 })
+                .sort({createdAt: -1})
                 .skip((page - 1) * perPage)
                 .limit(perPage)
                 .populate('creator');
@@ -92,11 +80,38 @@ const resolvers = {
                 }),
                 totalPosts: totalPosts
             };
+        },
+        post: async function (root: any, {id}: { id: string }, contextValue: any) {
+            if (!contextValue.isAuth) {
+                throw new GraphQLError('Not authenticated', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 401,
+                    },
+                });
+            }
+            const post = await Post.findById(id).populate('creator').exec();
+            if (!post) {
+                throw new GraphQLError('No post', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 401,
+                    },
+                });
+            }
+            return {
+                ...post.toObject(),
+                _id: post._id.toString(),
+                createdAt: post.createdAt.toISOString(),
+                updatedAt: post.updatedAt.toISOString()
+            };
         }
     },
 
     Mutation: {
-        createPost: async function(parent: any,{ postInput }:{postInput:ICreatePostInput}, contextValue:any, info:any) {
+        createPost: async function (parent: any, {postInput}: {
+            postInput: ICreatePostInput
+        }, contextValue: any, info: any) {
             if (!contextValue.isAuth) {
                 throw new GraphQLError('Not authenticated', {
                     extensions: {
@@ -108,15 +123,15 @@ const resolvers = {
             const errors = [];
             if (
                 validator.isEmpty(postInput.title) ||
-                !validator.isLength(postInput.title, { min: 5 })
+                !validator.isLength(postInput.title, {min: 5})
             ) {
-                errors.push({ message: 'Title is invalid.' });
+                errors.push({message: 'Title is invalid.'});
             }
             if (
                 validator.isEmpty(postInput.content) ||
-                !validator.isLength(postInput.content, { min: 5 })
+                !validator.isLength(postInput.content, {min: 5})
             ) {
-                errors.push({ message: 'Content is invalid.' });
+                errors.push({message: 'Content is invalid.'});
             }
             if (errors.length > 0) {
                 throw new GraphQLError('Invalid input', {
@@ -155,7 +170,7 @@ const resolvers = {
                 updatedAt: createdPost.updatedAt.toISOString()
             };
         },
-        createUser: async function (root: any, {userInput}: { userInput: ICreateUserInput }) {
+        createUser: async function (parent: any, {userInput}: { userInput: ICreateUserInput }) {
             const errors = [];
             if (!validator.isEmail(userInput.email)) {
                 errors.push({message: 'E-Mail is invalid.'});
@@ -189,60 +204,103 @@ const resolvers = {
             const createdUser = await user.save();
             return {...createdUser.toObject(), _id: createdUser._id.toString()};
         },
+        updatePost: async function (parent: any, {id, postInput}: {
+            id: string,
+            postInput: ICreatePostInput
+        }, contextValue: any) {
+            if (!contextValue.isAuth) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 401,
+                    },
+                });
+            }
+            const post = await Post.findById(id).populate('creator');
+            if (!post) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 404,
+                    },
+                });
+            }
+            if (post.creator._id.toString() !== contextValue.userId.toString()) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 403,
+                    },
+                });
+            }
+            const errors = [];
+            if (
+                validator.isEmpty(postInput.title) ||
+                !validator.isLength(postInput.title, {min: 5})
+            ) {
+                errors.push({message: 'Title is invalid.'});
+            }
+            if (
+                validator.isEmpty(postInput.content) ||
+                !validator.isLength(postInput.content, {min: 5})
+            ) {
+                errors.push({message: 'Content is invalid.'});
+            }
+            if (errors.length > 0) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 422,
+                    },
+                });
+            }
+            post.title = postInput.title;
+            post.content = postInput.content;
+            if (postInput.imageUrl !== 'undefined') {
+                post.imageUrl = postInput.imageUrl;
+            }
+            const updatedPost = await post.save();
+            return {
+                ...updatedPost.toObject(),
+                _id: updatedPost._id.toString(),
+                createdAt: updatedPost.createdAt.toISOString(),
+                updatedAt: updatedPost.updatedAt.toISOString()
+            };
+        },
+        deletePost: async function (parent: any, {id}: { id: string }, contextValue: any) {
+            if (!contextValue.isAuth) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 401,
+                    },
+                });
+            }
+            const post = await Post.findById(id);
+            if (!post) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 404,
+                    },
+                });
+            }
+            if (post.creator.toString() !== contextValue.userId.toString()) {
+                throw new GraphQLError('Invalid argument value', {
+                    extensions: {
+                        code: 'BAD_USER_INPUT',
+                        statusCode: 403,
+                    },
+                });
+            }
+            clearImage(post.imageUrl);
+            await Post.findByIdAndRemove(id);
 
-        // createUser: (
-        //     root: any,
-        //     { input }: { input: ICreateJobInput },
-        //     { user }: { user: any }
-        // ) => {
-        //     rejectIf(!user);
-        //     const job = new Jobs({
-        //         compId: user.compId,
-        //         ...input,
-        //     });
-        //     job.save();
-        //     return job;
-        // },
-        // deleteJob: (root: any, { id }: { id: string }, { user }: { user: any }) => {
-        //     rejectIf(!user);
-        //     const job = Jobs.findByIdAndDelete(id);
-        //     return job.exec();
-        // },
-        // updateJob: (
-        //     root: any,
-        //     { input }: { input: IUpdateJobInput },
-        //     { user }: { user: any }
-        // ) => {
-        //     rejectIf(!user);
-        //     const job = Jobs.findByIdAndUpdate(
-        //         input.id,
-        //         {
-        //             $set: {
-        //                 title: input.title,
-        //                 description: input.description,
-        //                 compId: input.companyId,
-        //             },
-        //         },
-        //         { new: true }
-        //     );
-        //     return job.exec();
-        // },
-    },
-    // Job: {
-    //     company: async (
-    //         job: { compId: string },
-    //         _: any,
-    //         { companyLoader }: { companyLoader: any }
-    //     ) => {
-    //         return await companyLoader.load(job.compId); //dataloader
-    //         //return Companies.findById(job.compId).exec(); //no dataloader
-    //     },
-    // },
-    // Company: {
-    //     jobs: async (company: { _id: string }) => {
-    //         return Jobs.find({ compId: company._id }).exec(); // no dataloader
-    //     },
-    // },
-};
+            const user = await User.findByIdAndUpdate(contextValue.userId, {$pull: {posts: post._id}});
+            await user?.save();
+            return true;
+        },
+    }
+}
 
 export {resolvers};
